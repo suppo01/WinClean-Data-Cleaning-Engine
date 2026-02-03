@@ -9,10 +9,22 @@ This project will use the python Abstract Syntax Tree package to conduct static 
 more efficient, static analysis, and an option that is more accurate, dynamic analysis. Using a venv setup allows for the code to be run without possibly doing irreversible damage to the file system.
 
 For the data cleaning aspect of this project, WinClean will use a machine learning approach. This allows for more versatilty as newer bugs become known as there are constantly new bugs being discovered. The hope is
-to look at integrating ai or something similar into the repo for the tool.
+to look at integrating ai or something similar into the repo for the tool and to train it to take the found bugs and fix them correctly. After fixing the bug, WinClean will pass the cleaned version back out and
+print out a feedback message with what was wrong with the original command and how to fix it.
 
 ## Research Context
+The context for the research and creation of WinClean is that Windows path commands are very distinct and different from Mac and Linux commands. In addition, in the computer science department at Allegheny
+College, there are not many Windows users among students who are knowledgable, or have been in the department long enough to learn the correct procedures for doing basic things with github and traversing file
+systems. With this, the faculty members usually lean towards Mac or Linux systems, so a lot of being a Windows user on campus becomes learning as you go and always looking things up.
+
+I have a passion for computer science and have been helping out in the department as a Technical Leader, or TL. I would love to help Windows people learn and find a passion for coding and computer science, but I
+am one person with a finite amount of time. With a tool like WinClean, students can learn from their mistakes without causing crashes in their file systems from incorrect path commands and improve for next time. 
 
 ## Installation
+Installation procedure coming soon.
 
 ## Tool Usage
+WinClean is intended to be used with the intention of having an educational purpose and is geared toward mainly beginners in the computer science industry that may be new to navigating file systems and would thus
+benefit from the feedback WinClean will provide.
+
+Usage instructions coming soon.
