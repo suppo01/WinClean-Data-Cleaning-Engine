@@ -159,21 +159,30 @@ def validate_windows_path(path: str, root: Any = None) -> list[str]:
 
 
 def analyze_folder_access():
+    """Runs static analysis on either Python code or a path command for possible Windows pathing errors."""
+    # Sets up a parser for CLI use
     parser = argparse.ArgumentParser(description="Analyze Python code OR a Windows path command.")
+    # Adds an input argument that has a help flag for what the input should be
     parser.add_argument("input", help="Python file OR a path command")
+    # Adds an optional root argument for setting the filesystem root with a default of None
     parser.add_argument("--root", help="Filesystem root for Python code analysis", default=None)
 
+    # Collects arguments given to the parser through CLI
     args = parser.parse_args()
+    # Transfers the input arguments to user_input for easier access
     user_input = args.input
 
     # 1. If input is a file → it is treated as Python code and uses AST
+    # If input is a file, it is open and read using utf-8 encoding
     if os.path.isfile(user_input):
         with open(user_input, "r", encoding="utf-8") as f:
             code = f.read()
 
+        # Creates an instance of the FileSystem_Analyzer class and visits the AST of the code
         analyzer = FileSystem_Analyzer(args.root)
         analyzer.visit(ast.parse(code))
 
+        # If the analyzer, an instance of the FileSystem_Analyzer class, has any errors, they are printed out
         if analyzer.errors:
             print("\nIssues found:")
             for err in analyzer.errors:
@@ -183,9 +192,12 @@ def analyze_folder_access():
         return
 
     # 2. Otherwise → treats input as a path command and focuses on validating the path
+    # The path is extracted from the command input
     path = extract_path_from_command(user_input)
+    # The path is validated using the validate_windows_path function and errors are collected in the errors variable
     errors = validate_windows_path(path, args.root)
 
+    # If any errors were found during validation, they are printed out
     if errors:
         print("\nIssues found:")
         for err in errors:
