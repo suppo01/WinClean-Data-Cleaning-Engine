@@ -3,19 +3,20 @@ import argparse
 import ast
 import os
 
-from Typing import Any
+from typing import Any
 # ----------------------------
 
 
 # ----- Static Analysis ------
 class FileSystem_Analyzer(ast.NodeVisitor):
     """Analyzes Python code for filesystem directory usage."""
+
     def __init__(self, root: Any = None):
         """Creates an instance of the class."""
-        self.root = os.path.abspath(root) if root else os.getcwd()
+        self.root = root if root else os.getcwd()
         self.errors = []
 
-    def visit_Call(self, node: ast.AST) -> None:
+    def visit_Call(self, node) -> None:
         """Visits a node in the code passed in for ast."""
         # Detects os.listdir("folder")
         if isinstance(node.func, ast.Attribute) and node.func.attr == "listdir":
@@ -26,14 +27,17 @@ class FileSystem_Analyzer(ast.NodeVisitor):
         # Detects Path("folder").iterdir()
         if isinstance(node.func, ast.Attribute) and node.func.attr == "iterdir":
             if isinstance(node.func.value, ast.Call):
-                if isinstance(node.func.value.func, ast.Name) and node.func.value.func.id == "Path":
+                if (
+                    isinstance(node.func.value.func, ast.Name)
+                    and node.func.value.func.id == "Path"
+                ):
                     folder = self._extract_string(node.func.value.args[0])
                     if folder:
                         self._check(folder, node.lineno)
 
         self.generic_visit(node)
 
-    def _extract_string(self, node: ast.AST) -> str | None:
+    def _extract_string(self, node) -> str | None:
         """Extracts a string value from and ast node."""
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
@@ -64,9 +68,7 @@ class FileSystem_Analyzer(ast.NodeVisitor):
         if any(c in illegal_chars for c in folder):
             # This is used for path commands being checked as the fake line number being employed is 0
             if lineno == 0:
-                self.errors.append(
-                    f"Path '{raw}' contains illegal Windows characters"
-                )
+                self.errors.append(f"Path '{raw}' contains illegal Windows characters")
             else:
                 self.errors.append(
                     f"Line {lineno}: Path '{raw}' contains illegal Windows characters"
@@ -77,22 +79,22 @@ class FileSystem_Analyzer(ast.NodeVisitor):
         if "/" in folder and "\\" in folder:
             # This is used for path commands being checked as the fake line number being employed is 0
             if lineno == 0:
-                 self.errors.append(
-                f"Path '{raw}' mixes slash styles"
-                )
+                self.errors.append(f"Path '{raw}' mixes slash styles")
             else:
-                self.errors.append(
-                    f"Line {lineno}: Path '{raw}' mixes slash styles"
-                )
+                self.errors.append(f"Line {lineno}: Path '{raw}' mixes slash styles")
             return
 
         # Detects missing drive letter using a string function
-        if not folder.startswith("\\") and ":" not in folder:
+        # If root is provided, allow relative paths
+        if (
+            not folder.startswith("\\")
+            and ":" not in folder
+            and not self.root
+            and not folder.startswith("/")
+        ):
             # This is used for path commands being checked as the fake line number being employed is 0
             if lineno == 0:
-                self.errors.append(
-                    f"Path '{raw}' is missing a drive letter"
-                )
+                self.errors.append(f"Path '{raw}' is missing a drive letter")
             else:
                 self.errors.append(
                     f"Line {lineno}: Path '{raw}' is missing a drive letter"
@@ -101,9 +103,12 @@ class FileSystem_Analyzer(ast.NodeVisitor):
 
         # Detects reserved names using a dictionary containing all reserved device names
         reserved = {
-            "CON","PRN","AUX","NUL",
-            *(f"COM{i}" for i in range(1,10)),
-            *(f"LPT{i}" for i in range(1,10)),
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            *(f"COM{i}" for i in range(1, 10)),
+            *(f"LPT{i}" for i in range(1, 10)),
         }
         base = os.path.basename(folder).upper()
         if base in reserved:
@@ -125,13 +130,9 @@ class FileSystem_Analyzer(ast.NodeVisitor):
         if not os.path.isdir(full):
             # This is used for path commands being checked as the fake line number being employed is 0
             if lineno == 0:
-                self.errors.append(
-                    f"Folder does not exist → {full}"
-                )
+                self.errors.append(f"Folder does not exist -> {full}")
             else:
-                self.errors.append(
-                    f"Line {lineno}: Folder does not exist → {full}"
-                )
+                self.errors.append(f"Line {lineno}: Folder does not exist -> {full}")
 
 
 def extract_path_from_command(cmd: str) -> str:
@@ -161,11 +162,15 @@ def validate_windows_path(path: str, root: Any = None) -> list[str]:
 def analyze_folder_access():
     """Runs static analysis on either Python code or a path command for possible Windows pathing errors."""
     # Sets up a parser for CLI use
-    parser = argparse.ArgumentParser(description="Analyze Python code OR a Windows path command.")
+    parser = argparse.ArgumentParser(
+        description="Analyze Python code OR a Windows path command."
+    )
     # Adds an input argument that has a help flag for what the input should be
     parser.add_argument("input", help="Python file OR a path command")
     # Adds an optional root argument for setting the filesystem root with a default of None
-    parser.add_argument("--root", help="Filesystem root for Python code analysis", default=None)
+    parser.add_argument(
+        "--root", help="Filesystem root for Python code analysis", default=None
+    )
 
     # Collects arguments given to the parser through CLI
     args = parser.parse_args()
@@ -204,6 +209,8 @@ def analyze_folder_access():
             print(" -", err)
     else:
         print("No path issues detected.")
+
+
 # ----------------------------
 
 
@@ -211,4 +218,3 @@ def analyze_folder_access():
 
 if __name__ == "__main__":
     analyze_folder_access()
-
