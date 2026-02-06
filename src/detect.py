@@ -85,11 +85,12 @@ class FileSystem_Analyzer(ast.NodeVisitor):
             return
 
         # Detects missing drive letter using a string function
-        # If root is provided, allow relative paths
+        # For Python file analysis (lineno > 0), always require drive letters
+        # For command line analysis (lineno == 0), allow relative paths if root is provided
         if (
             not folder.startswith("\\")
             and ":" not in folder
-            and not self.root
+            and (lineno > 0 or (lineno == 0 and not self.root))
             and not folder.startswith("/")
         ):
             # This is used for path commands being checked as the fake line number being employed is 0
