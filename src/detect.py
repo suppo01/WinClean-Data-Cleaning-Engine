@@ -185,7 +185,23 @@ def analyze_folder_access():
 
         # Creates an instance of the FileSystem_Analyzer class and visits the AST of the code
         analyzer = FileSystem_Analyzer(args.root)
-        analyzer.visit(ast.parse(code))
+
+        # Try to parse as AST first, if fails fall back to string analysis
+        try:
+            analyzer.visit(ast.parse(code))
+        except SyntaxError:
+            # Fall back to line-by-line string analysis for path extraction
+            import re
+
+            lines = code.split("\n")
+            for line_num, line in enumerate(lines, 1):
+                # Find all string literals in this line
+                strings = re.findall(r'"([^"]*)"', line) + re.findall(
+                    r"'([^']*)'", line
+                )
+                for string_literal in strings:
+                    if string_literal:  # Only check non-empty strings
+                        analyzer._check(string_literal, lineno=line_num)
 
         # If the analyzer, an instance of the FileSystem_Analyzer class, has any errors, they are printed out
         if analyzer.errors:
