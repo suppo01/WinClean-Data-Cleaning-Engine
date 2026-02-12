@@ -230,8 +230,6 @@ def dynamic_analyzer(
     path_commands = ["cd ", "dir ", "ls ", "mkdir "]
     is_path_command = any(input_path.lower().startswith(cmd) for cmd in path_commands)
 
-    print(f"DEBUG: input_path = '{input_path}', is_path_command = {is_path_command}")
-
     if is_path_command:
         # Handle path command - extract path and validate it using venv
         print(f"Analyzing path command: {input_path}")
@@ -258,22 +256,22 @@ def dynamic_analyzer(
 
         # Create a test script that tries to use the path
         test_code = f'''
-import os
-target_path = r"{path}"
-try:
-    os.listdir(target_path)
-    print("SUCCESS: Path is accessible")
-except FileNotFoundError as e:
-    print(f"FileNotFoundError: {{e}}")
-except NotADirectoryError as e:
-    print(f"NotADirectoryError: {{e}}")
-except PermissionError as e:
-    print(f"PermissionError: {{e}}")
-except OSError as e:
-    print(f"OSError: {{e}}")
-except Exception as e:
-    print(f"Exception: {{type(e).__name__}}: {{e}}")
-'''
+            import os
+            target_path = r"{path}"
+            try:
+                os.listdir(target_path)
+                print("SUCCESS: Path is accessible")
+            except FileNotFoundError as e:
+                print(f"FileNotFoundError: {{e}}")
+            except NotADirectoryError as e:
+                print(f"NotADirectoryError: {{e}}")
+            except PermissionError as e:
+                print(f"PermissionError: {{e}}")
+            except OSError as e:
+                print(f"OSError: {{e}}")
+            except Exception as e:
+                print(f"Exception: {{type(e).__name__}}: {{e}}")
+            '''
 
         result = subprocess.run(
             [python_executable, "-c", test_code],
@@ -363,25 +361,25 @@ except Exception as e:
 
         # Create a wrapper that catches all exceptions
         wrapper_code = f'''
-import sys
-sys.path.insert(0, "{os.path.dirname(script_path)}")
-try:
-    with open("{script_path.replace("\\", "\\\\")}", "r") as f:
-        code = f.read()
-    exec(compile(code, "{script_path.replace("\\", "\\\\")}", "exec"))
-except FileNotFoundError as e:
-    print(f"FileNotFoundError: {{e}}")
-except NotADirectoryError as e:
-    print(f"NotADirectoryError: {{e}}")
-except PermissionError as e:
-    print(f"PermissionError: {{e}}")
-except OSError as e:
-    print(f"OSError: {{e}}")
-except ValueError as e:
-    print(f"ValueError: {{e}}")
-except Exception as e:
-    print(f"Exception: {{type(e).__name__}}: {{e}}")
-'''
+            import sys
+            sys.path.insert(0, "{os.path.dirname(script_path)}")
+            try:
+                with open("{script_path.replace("\\", "\\\\")}", "r") as f:
+                    code = f.read()
+                exec(compile(code, "{script_path.replace("\\", "\\\\")}", "exec"))
+            except FileNotFoundError as e:
+                print(f"FileNotFoundError: {{e}}")
+            except NotADirectoryError as e:
+                print(f"NotADirectoryError: {{e}}")
+            except PermissionError as e:
+                print(f"PermissionError: {{e}}")
+            except OSError as e:
+                print(f"OSError: {{e}}")
+            except ValueError as e:
+                print(f"ValueError: {{e}}")
+            except Exception as e:
+                print(f"Exception: {{type(e).__name__}}: {{e}}")
+            '''
 
         result = subprocess.run(
             [python_executable, "-c", wrapper_code], capture_output=True, text=True
