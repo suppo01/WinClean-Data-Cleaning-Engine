@@ -3,6 +3,7 @@ import argparse
 import sys
 from detect import analyze_folder_access
 from detect import dynamic_analyzer
+from fix import run_opencode_prompt
 
 
 def main():
@@ -47,7 +48,7 @@ def main():
 
         print("Running static analysis...")
         input_path = args.script_path or args.path_command
-        analyze_folder_access(input_path, args.root)
+        analysis = analyze_folder_access(input_path, args.root)
 
     elif args.mode == "dynamic":
         # Validate dynamic mode inputs
@@ -60,7 +61,10 @@ def main():
 
         print("Running dynamic analysis...")
         input_path = args.script_path or args.path_command
-        dynamic_analyzer(input_path, args.root, args.venv)
+        analysis = dynamic_analyzer(input_path, args.root, args.venv)
+
+    print("Analysis complete. Running OpenCode prompt...")
+    #print(run_opencode_prompt(broken_code = , potential_bug = analysis))
 
 
 if __name__ == "__main__":
