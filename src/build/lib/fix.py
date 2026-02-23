@@ -2,7 +2,6 @@
 import requests
 import time
 import subprocess
-import socket
 import os
 
 from detect import extract_path_from_command
@@ -12,25 +11,13 @@ from typing import Any
 
 # --- Opencode Server Call ---
 def run_opencode_prompt(broken_code: str, potential_bug: str) -> Any:
-    server = None  # Initialize server variable
-
-    # Checks if server is already running
-    sock_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_running = sock_server.connect_ex(("127.0.0.1", 4096)) == 0
-    sock_server.close()
-
-    if server_running:
-        print("OpenCode server already running")
-    else:
-        print("OpenCode server not running on port 4096")
-        print("")
-        print(
-            "To use AI fix functionality, run this command FIRST in a separate terminal:"
-        )
-        print("  bunx opencode-ai serve")
-        print("")
-        print("Then run winclean again in this terminal.")
-        return "Server not running"
+    # Starts the server
+    server = subprocess.Popen(
+        ["bunx", "opencode", "serve", "--port", "4096"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    time.sleep(2)
 
     if os.path.isfile(broken_code):
         with open(broken_code, "r", encoding="utf-8") as f:
@@ -97,7 +84,6 @@ def run_opencode_prompt(broken_code: str, potential_bug: str) -> Any:
                         result.append(data)
 
         return "\n".join(result)
-    # Stops the server if it was started
+    # Stops the server
     finally:
-        if "server" in locals() and server:
-            server.terminate()
+        server.terminate()

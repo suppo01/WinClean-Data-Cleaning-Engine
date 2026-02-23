@@ -64,7 +64,7 @@ def main():
         analysis = dynamic_analyzer(input_path, args.root, args.venv)
 
     print("Analysis complete. Running OpenCode prompt...")
-    #print(run_opencode_prompt(broken_code = , potential_bug = analysis))
+    print(run_opencode_prompt(broken_code=input_path, potential_bug=analysis))
 
 
 if __name__ == "__main__":

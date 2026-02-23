@@ -43,6 +43,17 @@ cli functionality.
 - For pip Users: pip install .
 ```
 
+WinClean installs and runs an opencode server for automatic program repair after analyzing broken code. For WinClean to install
+opencode correctly, please ensure you have either npm or bun installed on your device. Then use the corresponding command to
+install opencode for program repair use.
+
+```cmd
+- For nmp Users: npmx opencode-ai serve
+- For bun Users: bunx opencode-ai serve
+```
+
+Then run WinClean in a different terminal.
+
 ## Tool Usage
 
 WinClean is intended to be used with the intention of having an educational purpose and is geared toward mainly beginners in
