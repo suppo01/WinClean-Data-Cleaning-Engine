@@ -1,103 +1,81 @@
-# ------ Import Block -------
-import requests
-import time
 import subprocess
-import socket
 import os
 
 from detect import extract_path_from_command
 from typing import Any
-# ----------------------------
 
 
-# --- Opencode Server Call ---
 def run_opencode_prompt(broken_code: str, potential_bug: str) -> Any:
-    server = None  # Initialize server variable
-
-    # Checks if server is already running
-    sock_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_running = sock_server.connect_ex(("127.0.0.1", 4096)) == 0
-    sock_server.close()
-
-    if server_running:
-        print("OpenCode server already running")
-    else:
-        print("OpenCode server not running on port 4096")
-        print("")
-        print(
-            "To use AI fix functionality, run this command FIRST in a separate terminal:"
-        )
-        print("  bunx opencode-ai serve")
-        print("")
-        print("Then run winclean again in this terminal.")
-        return "Server not running"
+    """Run OpenCode via server mode."""
 
     if os.path.isfile(broken_code):
         with open(broken_code, "r", encoding="utf-8") as f:
             broken_code = f.read()
-
     else:
         broken_code = extract_path_from_command(broken_code)
 
-    try:
-        # Builds a dynamic prompt with passed in variables for broken code and analysis of the code
-        prompt = f"""Fix the Windows Path Bug in {broken_code} with the error {potential_bug}.
-            Here are example inputs and outputs for this prompt to help you understand the task:
-            Example 1: UNC Path
-            Input: //server/share/folder/file.txt
-            Output: /server/share/folder/file.txt
-                    There was a UNC path in the input, which is not valid in Windows.
-                    Use a single slash instead of a double slash.
-            Example 2: Folder Doesn't Exist
-            Input: C:/nonexistent/folder/file.txt
-            Output: C:/existing/folder/file.txt
-                    The input had a folder that doesn't exist.
-                    Make sure you have the right directory and file name.
-            Example 3: Missing Drive Letter
-            Input: folder/file.txt
-            Output: C:/folder/file.txt
-                    The input was missing a drive letter.
-                    Add the appropriate drive letter (e.g., C:) to the beginning of the path.
-            Example 4: Illegal Character
-            Input: C:/folder/fix>
-            Output: C:/folder/fix
-                    The input contained an illegal character (">").
-                    Remove the illegal character from the path.
-            Example 5: Reserved Device Name
-            Input: C:/folder/COM1
-            Output: C:/folder/folder
-                    The input contained a reserved device name (COM1).
-                    Change the reserved device name to a valid folder name.
-            Example 6: Mixed Slashes
-            Input: C:/folder\file.txt
-            Output: C:/folder/file.txt
-                    The input had mixed slashes ("/" and "\").
-                    Use consistent forward slashes ("/") throughout the path.
-            Example 7: No Errors
-            Input: C:/folder/file.txt
-            Output: There were no path errors found in the input.
-            """
+    prompt = f"""Fix Windows path errors in this code: {broken_code}
 
-        # Collects the response from the server (handles SSE streaming)
+Errors to fix: {potential_bug}
+
+Examples:
+- UNC path //server/share -> /server/share  
+- Missing drive letter folder/file -> C:/folder/file
+- Illegal char C:/folder> -> C:/folder
+- Reserved name C:/COM1 -> C:/folder
+- Mixed slashes C:/folder\\file -> C:/folder/file
+"""
+
+    print("Running OpenCode via server...")
+
+    # Start server and get response using Python's requests to localhost
+    import socket
+    import time
+
+    # Check if server is already running
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_running = sock.connect_ex(("127.0.0.1", 4096)) == 0
+    sock.close()
+
+    if not server_running:
+        # Try to start server in background
+        npm_path = os.path.expandvars(r"%APPDATA%\npm")
+        server_cmd = os.path.join(npm_path, "opencode.CMD")
+
+        # Try to start server using bunx
+        bun_path = r"C:\Users\molly\.bun\bin\bun.EXE"
+
+        if os.path.exists(bun_path):
+            subprocess.Popen(
+                f'"{bun_path}" x opencode-ai serve',
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(10)  # Wait for server to start
+
+    # Now try to get response via HTTP
+    try:
+        import requests
+
         response = requests.post(
-            "http://127.0.0.1:4096/prompt", json={"prompt": prompt}, stream=True
+            "http://127.0.0.1:4096/prompt",
+            json={"prompt": prompt},
+            stream=True,
+            timeout=60,
         )
 
-        # Handle SSE streaming response
+        # Handle SSE streaming
         result = []
         for line in response.iter_lines():
             if line:
                 decoded = line.decode("utf-8")
                 if decoded.startswith("data: "):
-                    # Removes 'data: ' prefix
                     data = decoded[6:]
                     if data and data != "[DONE]":
-                        # Streams to terminal
                         print(data, end="", flush=True)
                         result.append(data)
 
         return "\n".join(result)
-    # Stops the server if it was started
-    finally:
-        if "server" in locals() and server:
-            server.terminate()
+    except Exception as e:
+        return f"Server error: {e}"

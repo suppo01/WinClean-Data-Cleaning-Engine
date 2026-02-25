@@ -48,11 +48,12 @@ opencode correctly, please ensure you have either npm or bun installed on your d
 install opencode for program repair use.
 
 ```cmd
-- For nmp Users: npmx opencode-ai serve
-- For bun Users: bunx opencode-ai serve
+- For nmp Users: npmx opencode-ai
+- For bun Users: bunx opencode-ai
 ```
 
-Then run WinClean in a different terminal.
+Then run `/connect`and link opencode to your github account for authentication and select your preffered model of ai. Finally,
+run WinClean in a different terminal.
 
 ## Tool Usage
 

@@ -1,6 +1,7 @@
 # main.py
 import argparse
-import sys
+import os
+from pathlib import Path
 from detect import analyze_folder_access
 from detect import dynamic_analyzer
 from fix import run_opencode_prompt
@@ -9,7 +10,7 @@ from fix import run_opencode_prompt
 def main():
     parser = argparse.ArgumentParser(description="WinClean - Choose Analysis Type")
 
-    # Selects mode flag: static or dynamic
+    # Mode selection
     parser.add_argument(
         "--mode",
         choices=["static", "dynamic"],
@@ -17,54 +18,65 @@ def main():
         help="Choose analysis mode: static or dynamic",
     )
 
-    # Provides root for path if specified
+    # File paths and root directory
     parser.add_argument("--root", help="Filesystem root path")
-
-    # Provides arguments for either script path or path command
     parser.add_argument("--script-path", help="Python script file for static analysis")
     parser.add_argument("--path-command", help="Command path for static analysis")
-
-    # Provides argument for venv path for dynamic analysis
     parser.add_argument(
         "--venv", help="Virtual environment path (required for dynamic)"
     )
 
     args = parser.parse_args()
 
-    if args.mode == "static":
-        # Validate static mode inputs
-        if not args.script_path and not args.path_command:
-            print("Error: --script-path or --path-command required for static mode")
-            return
+    def validate_and_normalize_path(path):
+        if path:
+            normalized = str(Path(path).resolve())
+            if not os.path.exists(normalized):
+                raise FileNotFoundError(f"Path does not exist: {normalized}")
+            return normalized
+        return None
 
-        # Set up argv for analyze_folder_access
-        argv = ["main.py"]
-        if args.script_path:
-            argv.append(args.script_path)
-        elif args.path_command:
-            argv.append(args.path_command)
-        if args.root:
-            argv.extend(["--root", args.root])
+    try:
+        # Normalize and validate paths
+        root = validate_and_normalize_path(args.root)
+        script_path = validate_and_normalize_path(args.script_path)
+        path_command = validate_and_normalize_path(args.path_command)
+        venv = validate_and_normalize_path(args.venv)
 
-        print("Running static analysis...")
-        input_path = args.script_path or args.path_command
-        analysis = analyze_folder_access(input_path, args.root)
+        input_path = script_path or path_command
+        analysis = None
 
-    elif args.mode == "dynamic":
-        # Validate dynamic mode inputs
-        if not args.script_path and not args.path_command:
-            print("Error: --script-path or --path-command required for dynamic mode")
-            return
-        if not args.venv:
-            print("Error: --venv required for dynamic mode")
-            return
+        if args.mode == "static":
+            if not input_path:
+                raise ValueError(
+                    "--script-path or --path-command required for static mode"
+                )
 
-        print("Running dynamic analysis...")
-        input_path = args.script_path or args.path_command
-        analysis = dynamic_analyzer(input_path, args.root, args.venv)
+            print("Running static analysis...")
+            analysis = analyze_folder_access(input_path, root or "")
 
-    print("Analysis complete. Running OpenCode prompt...")
-    print(run_opencode_prompt(broken_code=input_path, potential_bug=analysis))
+        elif args.mode == "dynamic":
+            if not input_path:
+                raise ValueError(
+                    "--script-path or --path-command required for dynamic mode"
+                )
+            if not venv:
+                raise ValueError("--venv is required for dynamic mode")
+
+            print("Running dynamic analysis...")
+            analysis = dynamic_analyzer(input_path, root or "", venv or "")
+
+        print("Analysis complete.")
+        # OpenCode integration - requires proper session setup
+        # To enable: run 'opencode' interactively to configure
+        print(
+            run_opencode_prompt(
+                broken_code=input_path or "", potential_bug=analysis or ""
+            )
+        )
+
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}")
 
 
 if __name__ == "__main__":
