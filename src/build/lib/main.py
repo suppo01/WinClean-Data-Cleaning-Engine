@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from detect import analyze_folder_access
 from detect import dynamic_analyzer
-from fix import run_opencode_prompt
+from fix import run_opencode_prompt_sync
 
 
 def main():
@@ -67,10 +67,8 @@ def main():
             analysis = dynamic_analyzer(input_path, root or "", venv or "")
 
         print("Analysis complete.")
-        # OpenCode integration - requires proper session setup
-        # To enable: run 'opencode' interactively to configure
         print(
-            run_opencode_prompt(
+            run_opencode_prompt_sync(
                 broken_code=input_path or "", potential_bug=analysis or ""
             )
         )
