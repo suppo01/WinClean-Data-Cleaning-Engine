@@ -1,11 +1,13 @@
 def main():
-    print("\Users\molly\github")
-    print("\Users\molly\c")
-    print("\Users\molly\COM1")
-    print("\Users\molly\github>")
-    print("\Users/molly\github")
-    print("molly\github")
-    print("\\Users\\molly")\
+    print(r"C:\Users\molly\github")
+    print(r"C:\Users\molly\c")
+    print(r"C:\Users\molly\COM1")
+    print(r"C:\Users\molly\github>")
+    print(r"C:\Users/molly\github")
+    print(r"\molly\github")
+    print(r"\\server\share\data")
+    print(r"C:\Users\molly")
+
 
 if __name__ == "__main__":
     main()

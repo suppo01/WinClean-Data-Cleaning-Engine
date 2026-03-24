@@ -8,9 +8,10 @@ from fix import run_opencode_prompt_sync
 
 
 def main():
-    parser = argparse.ArgumentParser(description="WinClean - Choose Analysis Type")
+    parser = argparse.ArgumentParser(
+        description="WinClean - Windows Path Cleaning Engine"
+    )
 
-    # Mode selection
     parser.add_argument(
         "--mode",
         choices=["static", "dynamic"],
@@ -18,9 +19,8 @@ def main():
         help="Choose analysis mode: static or dynamic",
     )
 
-    # File paths and root directory
     parser.add_argument("--root", help="Filesystem root path")
-    parser.add_argument("--script-path", help="Python script file for static analysis")
+    parser.add_argument("--script-path", help="Python script file")
     parser.add_argument("--path-command", help="Command path for static analysis")
     parser.add_argument(
         "--venv", help="Virtual environment path (required for dynamic)"
@@ -37,7 +37,6 @@ def main():
         return None
 
     try:
-        # Normalize and validate paths
         root = validate_and_normalize_path(args.root)
         script_path = validate_and_normalize_path(args.script_path)
         path_command = validate_and_normalize_path(args.path_command)

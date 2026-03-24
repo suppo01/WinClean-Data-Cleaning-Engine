@@ -1,12 +1,333 @@
 # ------ Import Block -------
-import argparse
 import ast
 import subprocess
 import sys
 import os
+import re
 
 from typing import Any
 # ----------------------------
+
+
+# ----- Symbolic Path Analysis with Z3 -----
+def check_with_z3(code: str) -> list[str]:
+    """Check code using Z3 symbolic path analysis - only path-related issues."""
+    try:
+        from z3 import Solver, String, Contains, StringVal, Or, sat
+
+        tree = ast.parse(code)
+        user_inputs = {}  # var_name -> True (tracks that this var gets user input)
+        errors = []
+
+        def get_func_name(node):
+            if isinstance(node, ast.Name):
+                return node.id
+            if isinstance(node, ast.Attribute):
+                if isinstance(node.value, ast.Name):
+                    return f"{node.value.id}.{node.attr}"
+                return node.attr
+            return ""
+
+        def looks_like_path(node):
+            """Check if AST node involves path operations."""
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                return looks_like_path(node.left) or looks_like_path(node.right)
+            if isinstance(node, ast.JoinedStr):
+                return any(
+                    (
+                        isinstance(v, ast.Constant)
+                        and isinstance(v.value, str)
+                        and ("/" in v.value or "\\" in v.value or ":" in v.value)
+                    )
+                    for v in node.values
+                )
+            if isinstance(node, ast.Call):
+                func = get_func_name(node.func)
+                return func in ("join", "path.join")
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return "/" in node.value or "\\" in node.value or ":" in node.value
+            return False
+
+        def uses_user_input(node):
+            """Check if expression uses any user input variables."""
+            if isinstance(node, ast.Name):
+                return node.id in user_inputs
+            if isinstance(node, ast.Attribute):
+                return uses_user_input(node.value)
+            if isinstance(node, ast.BinOp):
+                return uses_user_input(node.left) or uses_user_input(node.right)
+            if isinstance(node, ast.Call):
+                return any(uses_user_input(arg) for arg in node.args)
+            return False
+
+        def check_path_dangers(path_expr, lineno, desc=""):
+            """Check if symbolic path could be dangerous."""
+            ILLEGAL = set('<>:"|?*')
+            RESERVED = {
+                "CON",
+                "PRN",
+                "AUX",
+                "NUL",
+                *{f"COM{i}" for i in range(1, 10)},
+                *{f"LPT{i}" for i in range(1, 10)},
+            }
+
+            for char in ILLEGAL:
+                solver = Solver()
+                solver.add(Contains(path_expr, StringVal(char)))
+                if solver.check() == sat:
+                    errors.append(f"Line {lineno}: Path MAY contain illegal '{char}'")
+
+            for name in RESERVED:
+                solver = Solver()
+                solver.add(
+                    Or(
+                        Contains(path_expr, StringVal(f"/{name}")),
+                        Contains(path_expr, StringVal(f"\\{name}")),
+                        Contains(path_expr, StringVal(f":\\{name}")),
+                    )
+                )
+                if solver.check() == sat:
+                    errors.append(f"Line {lineno}: Path MAY contain reserved '{name}'")
+
+        # Visit all nodes
+        for node in ast.walk(tree):
+            # Track input() assignments
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        if isinstance(node.value, ast.Call):
+                            func = get_func_name(node.value.func)
+                            if func == "input":
+                                user_inputs[target.id] = True
+
+            # Track sys.argv usage
+            if isinstance(node, ast.Call):
+                func = get_func_name(node.func)
+                if func == "__getitem__" and isinstance(node.func, ast.Attribute):
+                    if isinstance(node.func.value, ast.Attribute):
+                        if (
+                            isinstance(node.func.value.value, ast.Name)
+                            and node.func.value.value.id == "sys"
+                            and node.func.value.attr == "argv"
+                        ):
+                            # sys.argv used - check if it's in a path operation
+                            parent_call = node
+                            for parent in ast.walk(tree):
+                                if isinstance(parent, ast.Call):
+                                    for arg in parent.args:
+                                        if arg == node:
+                                            path_func = get_func_name(parent.func)
+                                            if path_func in (
+                                                "listdir",
+                                                "chdir",
+                                                "open",
+                                                "exists",
+                                                "isdir",
+                                                "isfile",
+                                                "walk",
+                                            ):
+                                                errors.append(
+                                                    f"Line {parent.lineno}: sys.argv used in path operation"
+                                                )
+
+            # Check path operations that use user input
+            if isinstance(node, ast.Call):
+                func = get_func_name(node.func)
+                if func in (
+                    "listdir",
+                    "chdir",
+                    "open",
+                    "exists",
+                    "isdir",
+                    "isfile",
+                    "walk",
+                ):
+                    for arg in node.args:
+                        if uses_user_input(arg):
+                            check_path_dangers(arg, node.lineno)
+                        elif looks_like_path(arg):
+                            check_path_dangers(arg, node.lineno)
+
+        return errors
+
+    except ImportError:
+        return ["Z3 not installed - run: pip install z3-solver"]
+    except SyntaxError:
+        return []
+
+
+def check_path_concatenation(code: str) -> list[str]:
+    """Quick regex-based check for path concatenation patterns - path-related only."""
+    errors = []
+
+    lines = code.split("\n")
+    for lineno, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+
+        # Check for input() + path operations in same line
+        if "input(" in line:
+            if any(
+                x in line
+                for x in [
+                    "+",
+                    "os.path",
+                    "os.listdir",
+                    "os.chdir",
+                    "os.open",
+                    "os.sep",
+                    "\\\\",
+                ]
+            ):
+                errors.append(f"Line {lineno}: input() with path concatenation")
+
+        # Check for f-strings building paths with variables
+        if ('f"' in line or "f'" in line) and "{" in line:
+            if any(x in line for x in ["\\\\", "os.path", ":\\\\", ":///"]):
+                errors.append(f"Line {lineno}: f-string builds path with variable")
+
+        # Check for os.path.join with user input
+        if "os.path.join" in line and any(x in line for x in ["input(", "argv"]):
+            errors.append(f"Line {lineno}: os.path.join with user input")
+
+    return errors
+
+
+class DynamicPathAnalyzer(ast.NodeVisitor):
+    """Detects dynamically built paths using AST analysis."""
+
+    def __init__(self):
+        self.errors = []
+        self.user_input_vars = set()
+
+    def visit_Assign(self, node) -> None:
+        if isinstance(node.value, ast.Call):
+            func_name = self._get_func_name(node.value.func)
+            if func_name == "input":
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        self.user_input_vars.add(target.id)
+                        self.errors.append(
+                            f"Line {node.lineno}: Variable '{target.id}' receives user input"
+                        )
+
+        if isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.Add):
+            if self._contains_user_input(node.value):
+                self.errors.append(
+                    f"Line {node.lineno}: Path built from concatenation with user input"
+                )
+
+        if isinstance(node.value, ast.JoinedStr):
+            has_path = any(
+                self._looks_like_path(v.value)
+                for v in node.value.values
+                if isinstance(v, ast.Constant) and isinstance(v.value, str)
+            )
+            has_var = any(
+                isinstance(v, ast.FormattedValue) and self._is_user_input(v.value)
+                for v in node.value.values
+            )
+            if has_path and has_var:
+                self.errors.append(
+                    f"Line {node.lineno}: f-string builds path with user input"
+                )
+
+        self.generic_visit(node)
+
+    def visit_Call(self, node) -> None:
+        func_name = self._get_func_name(node.func)
+
+        if func_name in (
+            "listdir",
+            "chdir",
+            "open",
+            "exists",
+            "isdir",
+            "isfile",
+            "walk",
+        ):
+            for arg in node.args:
+                if self._uses_user_input(arg):
+                    self.errors.append(
+                        f"Line {node.lineno}: Path operation uses user input"
+                    )
+                    break
+
+        if func_name in ("join", "path.join"):
+            for arg in node.args:
+                if self._uses_user_input(arg):
+                    self.errors.append(
+                        f"Line {node.lineno}: os.path.join uses user input"
+                    )
+                    break
+
+        self.generic_visit(node)
+
+    def _get_func_name(self, node) -> str:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name):
+                return f"{node.value.id}.{node.attr}"
+            return node.attr
+        if isinstance(node, ast.Call):
+            return self._get_func_name(node.func)
+        return ""
+
+    def _uses_user_input(self, node) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self.user_input_vars
+        if isinstance(node, ast.Attribute):
+            return self._uses_user_input(node.value)
+        return False
+
+    def _is_user_input(self, node) -> bool:
+        return self._uses_user_input(node)
+
+    def _contains_user_input(self, node) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self.user_input_vars
+        if isinstance(node, ast.BinOp):
+            return self._contains_user_input(node.left) or self._contains_user_input(
+                node.right
+            )
+        return False
+
+    def _looks_like_path(self, s: str) -> bool:
+        if not s or not isinstance(s, str):
+            return False
+        import re
+
+        return bool(
+            re.search(r"^[A-Za-z]:[/\\]", s)
+            or s.startswith("/")
+            or s.startswith("\\")
+            or re.search(r"[/\\]{2,}", s)
+        )
+
+
+def check_dynamic_path(code: str) -> list[str]:
+    """Check code for dynamically built paths."""
+    try:
+        tree = ast.parse(code)
+        analyzer = DynamicPathAnalyzer()
+        analyzer.visit(tree)
+        return analyzer.errors
+    except SyntaxError:
+        return []
+
+
+def analyze_dynamic_paths(code: str) -> list[str]:
+    """Analyze code for dynamically built paths using Z3 symbolic analysis."""
+    errors = []
+    errors.extend(check_path_concatenation(code))
+    errors.extend(check_with_z3(code))  # Z3 symbolic analysis
+    return errors
+
+
+# --------------------------------
 
 
 # ----- Static Analysis ------
@@ -37,6 +358,13 @@ class FileSystem_Analyzer(ast.NodeVisitor):
                     if folder:
                         self._check(folder, node.lineno)
 
+        # Detects print("path") - extracts any string arguments that look like paths
+        if isinstance(node.func, ast.Name) and node.func.id == "print":
+            for arg in node.args:
+                folder = self._extract_string(arg)
+                if folder:
+                    self._check(folder, node.lineno)
+
         self.generic_visit(node)
 
     def _extract_string(self, node) -> str | None:
@@ -47,6 +375,9 @@ class FileSystem_Analyzer(ast.NodeVisitor):
 
     def _check(self, folder: str, lineno: int) -> None:
         """Checks for inconsistencies with Windows path commands."""
+        if not any(c in folder for c in "/\\:"):
+            return
+
         # Puts the original folder value into a variable for printing error messages
         raw = folder
         # Cleans up folder value to fit expected conditions for checking paths
@@ -66,7 +397,7 @@ class FileSystem_Analyzer(ast.NodeVisitor):
             return
 
         # Detects illegal characters using a set containing all illegal characters
-        illegal_chars = set('<>:"|?*')
+        illegal_chars = set('<>"|?*')
         if any(c in illegal_chars for c in folder):
             # This is used for path commands being checked as the fake line number being employed is 0
             if lineno == 0:
@@ -90,7 +421,7 @@ class FileSystem_Analyzer(ast.NodeVisitor):
         # For Python file analysis (lineno > 0), always require drive letters
         # For command line analysis (lineno == 0), allow relative paths if root is provided
         if (
-            not folder.startswith("\\")
+            not folder.startswith("\\\\")
             and ":" not in folder
             and (lineno > 0 or (lineno == 0 and not self.root))
             and not folder.startswith("/")
@@ -181,8 +512,6 @@ def analyze_folder_access(input_path: str, root: str = "") -> None:
             analyzer.visit(ast.parse(code))
         except SyntaxError:
             # Falls back to line-by-line string analysis for path extraction
-            import re
-
             lines = code.split("\n")
             for line_num, line in enumerate(lines, 1):
                 # Finds all string literals in this line
@@ -193,10 +522,15 @@ def analyze_folder_access(input_path: str, root: str = "") -> None:
                     if string_literal:  # Only check non-empty strings
                         analyzer._check(string_literal, lineno=line_num)
 
+        # Run symbolic/dynamic path analysis
+        print("\nRunning dynamic path analysis...")
+        dynamic_errors = analyze_dynamic_paths(code)
+        all_errors = analyzer.errors + dynamic_errors
+
         # If the analyzer, an instance of the FileSystem_Analyzer class, has any errors, they are printed out
-        if analyzer.errors:
+        if all_errors:
             print("\nIssues found:")
-            for err in analyzer.errors:
+            for err in all_errors:
                 print(" -", err)
         else:
             print("No folder path issues detected.")
@@ -226,18 +560,18 @@ def dynamic_analyzer(
 ) -> None:
     """Sets up a virtual environment and runs the specified script or command within it."""
 
-    # Check if input is a path command (like "cd C:\path") or a script file
+    # Checks if input is a path command (like "cd C:\path") or a script file
     path_commands = ["cd ", "dir ", "ls ", "mkdir "]
     is_path_command = any(input_path.lower().startswith(cmd) for cmd in path_commands)
 
     if is_path_command:
-        # Handle path command - extract path and validate it using venv
+        # Handles path commands - extracts path and validate it using venv
         print(f"Analyzing path command: {input_path}")
 
-        # Extract the path from the command (e.g., "cd C:\path" -> "C:\path")
+        # Extracts the path from the command (e.g., "cd C:\path" -> "C:\path")
         path = extract_path_from_command(input_path)
 
-        # Determine python executable in the venv
+        # Determines python executable in the venv
         if not os.path.exists(venv_path):
             print(f"Creating virtual environment at {venv_path}...")
             result = subprocess.run(
@@ -254,7 +588,7 @@ def dynamic_analyzer(
         else:
             python_executable = os.path.join(venv_path, "bin", "python")
 
-        # Create a test script that tries to use the path
+        # Creates a test script that tries to use the path
         test_code = f'''
 import os
 target_path = r"{path}"
@@ -286,10 +620,10 @@ except Exception as e:
             print(f" - {result.stdout.strip()}")
         return
 
-    # Otherwise, treat as Python script file
+    # Otherwise, treats as Python script file
     script_path = input_path
 
-    # Create virtual environment if it doesn't exist
+    # Creates virtual environment if it doesn't exist
     if not os.path.exists(venv_path):
         print(f"Creating virtual environment at {venv_path}...")
         try:
@@ -321,19 +655,19 @@ except Exception as e:
         print(f"Error: Python executable not found at {python_executable}")
         return
 
-    # Check if script_path is a directory
+    # Checks if script_path is a directory
     if os.path.isdir(script_path):
         print(f"Error: {script_path} is a directory, not a Python file")
         return
 
-    # Determine if we should run as module or script
+    # Determines if we should run as module or script
     script_dir, script_name = os.path.split(script_path)
     module_name = script_name.replace(".py", "")
 
     # Builds the command list for subprocess.run()
-    # Use -m to run as module if it has main() function
+    # Uses -m to run as module if it has main() function
     # Builds the command list for subprocess.run()
-    # Run the Python file directly - it will execute main() if __name__ == "__main__"
+    # Runs the Python file directly - it will execute main() if __name__ == "__main__"
     path_command = [python_executable, script_path] + list(script_args)
 
     # Separates out the script name for error messages
@@ -350,16 +684,16 @@ except Exception as e:
         )
         print("STANDARD OUTPUT:", result.stdout)
         print("STANDARD ERRORS:", result.stderr)
-    # The case for when a non-zero exit code is returned by subprocess
+    # This is the case for when a non-zero exit code is returned by subprocess
     except subprocess.CalledProcessError as e:
         print(f"Process failed with return code {e.returncode}")
         print("STANDARD OUTPUT:", e.stdout)
         print("STANDARD ERRORS:", e.stderr)
 
-        # Run script in venv and catch all runtime exceptions
+        # Runs script in venv and catch all runtime exceptions
         print("Analyzing script in real-time...")
 
-        # Create a wrapper that catches all exceptions
+        # Creates a wrapper that catches all exceptions
         wrapper_code = f'''
 import sys
 sys.path.insert(0, "{os.path.dirname(script_path)}")
@@ -391,28 +725,28 @@ except Exception as e:
                 print(f" - {line}")
         else:
             print("No runtime errors detected.")
-    # The case for when the file or path specified could not be found
+    # This is the case for when the file or path specified could not be found
     # This handles missing drive letter, device names, and a file that doesn't exist at the path specified
     except FileNotFoundError:
         if script_path == None:
             print(f"Error: The path {path_command} was not found.")
         else:
             print(f"Error: The script {script_name} was not found.")
-    # The case for when the file or path specified contains a syntax error
+    # This is the case for when the file or path specified contains a syntax error
     # This handles illegal characters, mixed slashes, and UNC paths within the working directory
     except SyntaxError as e:
         if script_path == None:
             print(f"Error: The path {path_command} contains a syntax error.")
         else:
             print(f"Error: The script {script_name} contains a syntax error.")
-            # Fall back to path analysis for Unicode escape errors
+            # Falls back to path analysis for Unicode escape errors
             if "unicodeescape" in str(e):
                 print("Analyzing paths in file despite Unicode escape errors...")
                 try:
                     with open(script_path, "r", encoding="utf-8") as f:
                         code = f.read()
 
-                    # Reuse static analyzer for path validation
+                    # Reuses static analyzer for path validation
                     analyzer = FileSystem_Analyzer(root)
                     lines = code.split("\n")
                     for line_num, line in enumerate(lines, 1):
@@ -433,20 +767,20 @@ except Exception as e:
                         print("No path issues detected despite syntax error.")
                 except Exception as path_err:
                     print(f"Could not analyze paths: {path_err}")
-    # The case for when the file of path specified is not able to perform the operation requested
+    # This is the case for when the file of path specified is not able to perform the operation requested
     # This handles illegal characters, mixed slashes, UNC paths in the working directory, and reserved device names
     except ValueError:
         if script_path == None:
             print(f"Error: A value error occurred with path {path_command}.")
         else:
             print(f"Error: A value error occurred with script {script_name}.")
-    # The case for when there is an operating system related error when trying to access the file or path specified
+    # This is the case for when there is an operating system related error when trying to access the file or path specified
     except OSError:
         if script_path == None:
             print(f"Error: An OS error occurred while trying to access {path_command}.")
         else:
             print(f"Error: An OS error occurred while trying to access {script_name}.")
-    # The case for when there is a permission error when trying to access the file or path specified
+    # This is the case for when there is a permission error when trying to access the file or path specified
     except PermissionError:
         if script_path == None:
             print(f"Error: Permission denied when trying to access {path_command}.")
