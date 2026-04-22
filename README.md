@@ -1,23 +1,34 @@
 # WinClean: A python Data Cleaning Engine for Windows
 
-WinClean is a Python based Data Cleaning Engine for Windows with a focus on Windows path command errors.
+WinClean is a Python based Data Cleaning Engine for Windows with a focus on Windows file path command errors.
+
+**Feel free to take WinClean for a test run!**
+However, please do not make changes directly to this repository.
 
 ## Project Overview
 
-WinClean uses both static and dynamic analysis to detect Windows path bugs, cleans the data by fixing the bug, and send the
-user feedback about what went wrong, all without the user experiencing a crash in the first place. The eventual idea would be
-that WinClean is automatically passed all path commands and analyzes them for possible bugs ahead of time.
+WinClean uses both static and dynamic analysis to detect Windows path bugs, and cleans the data by fixing the bug, all without the user experiencing a crash in the first place. The idea is eventually that WinClean is automatically passed all path commands and analyzes them for possible bugs ahead of time.
 
-This project will use the python Abstract Syntax Tree package to conduct static analysis and python's venv setup to conduct
-dynamic analysis. Having both static and dynamic analysis allows for an option that is more efficient, static analysis, and an
-option that is more accurate, dynamic analysis. Using a venv setup allows for the code to be run without possibly doing
-irreversible damage to the file system.
+This project uses the python Abstract Syntax Tree package and Z3, an SMT solver, to conduct static analysis. The Z3 SMT solver
+is only used when a python code file is dynamically building Windows file paths throughout a program, rather than hard-coding
+it. For all other cases, the Python Abstract Syntax Tree with a series of well-defined rules based on the constraints of the\
+Windows file path design, is used. WinClean also uses Python's venv setup to conduct dynamic analysis. Having both static and
+dynamic analysis allows for an option that is more efficient, static analysis, and an option that is more accurate, dynamic
+analysis. Using a venv setup allows for the code to be run without possibly doing irreversible damage to the file system.
+Please note that the Z3 SMT solver is only able to guess at what may be a dangerous path when any form of user-driven input is
+involved as it is not running the code in real time.
 
-For the data cleaning aspect of this project, WinClean will use a machine learning approach. This allows for more versatilty as
-newer bugs become known as there are constantly new bugs being discovered. The hope is to look at integrating ai or something
-similar into the repo for the tool and to train it to take the found bugs and fix them correctly. After fixing the bug,
-WinClean will pass the cleaned version back out and print out a feedback message with what was wrong with the original command
-and how to fix it.
+For the data cleaning aspect of this project, WinClean uses an ACP approach in conjunctions with the OpenCode AI server. This
+allows for more versatilty as newer bugs become known as there are constantly new bugs being discovered. By connecting with
+ACP, I am able to communicate programatically with the OpenCode AI server and pass it a prompt containing broken code, analysis
+results, and a clear description of the information I would like to recieve back. I am also able to engage in an iterative
+querying with few shot approach that allows the server to iterate on the prompt a few times before giving backa clean command.
+This allows for hopefully improved learning as well as a higher chance of a truly clean command the first time. After fixing
+the bug, WinClean passes the cleanest version it has back out and the corrected path is printed to the terminal.
+
+**Please Note:** WinClean is still in development and will be experiencing various changes and big feature additons to improve
+the tool and the experince of its users. The refinement of WinClean's prompt that is sent to OpenCode's AI server via ACP and
+other bug fixes are on the list to fix and update as WinClean's concept becomes a reality.
 
 ## Research Context
 
@@ -43,23 +54,15 @@ cli functionality.
 - For pip Users: pip install .
 ```
 
-WinClean installs and runs an opencode server for automatic program repair after analyzing broken code. For WinClean to start
-opencode correctly, please ensure you have either npm or bun installed on your device. Then use the corresponding command to
-start the opencode server for authentication through GitHub.
-
-```cmd
-- For nmp Users: npmx opencode-ai
-- For bun Users: bunx opencode-ai
-```
-
-Then run `/connect`and link opencode to your github account for authentication and select your preffered model of ai. Finally,
-run WinClean in a different terminal.
+This command connects with the setup script that will install all dependencies for the cli functionality and WinClean as a
+whole.
 
 ## Tool Usage
 
 WinClean is intended to be used with the intention of having an educational purpose and is geared toward mainly beginners in
 the computer science industry that may be new to navigating file systems and would thus benefit from the feedback WinClean will
-provide.
+provide. WinClean is also based in Windows file path command errors, so its primary use is for Windows users, though those
+hoping to develop for Windows may also find the tool helpful for their needs.
 
 ### CLI Usage Hints and Examples
 
@@ -69,6 +72,27 @@ The command should look like this:
 winclean --mode [enter mode here] --script-path or --path-command [enter path or command here in quotes] -- venv [enter
 desired venv path here]
 ```
+
+A real-world example of the WinClean command for static analysis on a file path command would look like this:
+
+``` cmd
+winclean --mode static --path-command "cd C:\github\TL_Stuff"
+```
+
+The path-command flag is used because there is a file path command being passed as the input to clean, and the mode is static
+because WinClean will be asked to perform static analysis on the file path command.
+
+Another real-world example of the WinClean command for dynamic analysis on a Python code file would look like this:
+
+``` cmd
+winclean --mode dynamic --script-path "test_suite\test_path_dynamic.py" --venv "my_venv"
+```
+
+The script-path flag is used because there is a path to a Python code file being passed so WinClean knows where to find the
+file it needs to clean, and the mode is dyanmic because WinClean will be asked to perform dynamic analysis on the Python code
+file found at the path provided. There is also the addition of the venv flag to give a name the user would like WinClean to use
+for the virtual environment for dynamic analysis. This can be either an existing or new environment, this example sjhows the
+set up for a new environment, providing only a name as a string.
 
 #### Mode Flag
 
@@ -86,7 +110,7 @@ whole python file to WinClean. A path command is used when you want to look at a
 used with static and dynamic modes of analysis.
 
 ``` cmd
-- --script-path "test_suite\runtime_path_test.py"
+- --script-path "test_suite\test_path_dynamic.py"
 - --path_command "cd \Users\a\github"
 ```
 

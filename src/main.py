@@ -2,9 +2,9 @@
 import argparse
 import os
 from pathlib import Path
-from detect import analyze_folder_access
-from detect import dynamic_analyzer
-from fix import run_opencode_prompt_sync
+from detect_static import analyze_folder_access
+from detect_dynamic import dynamic_analyzer
+from OpenCode_runner import run_opencode_prompt_sync
 
 
 def main():
@@ -39,11 +39,12 @@ def main():
     try:
         root = validate_and_normalize_path(args.root)
         script_path = validate_and_normalize_path(args.script_path)
-        path_command = validate_and_normalize_path(args.path_command)
+        path_command = args.path_command  # Don't validate - it's a command string
         venv = validate_and_normalize_path(args.venv)
 
-        input_path = script_path or path_command
-        analysis = None
+        input_path = (
+            script_path or path_command
+        )  # Use script_path if available, else path_command
 
         if args.mode == "static":
             if not input_path:
@@ -52,7 +53,11 @@ def main():
                 )
 
             print("Running static analysis...")
-            analysis = analyze_folder_access(input_path, root or "")
+            # Pass the original path_command string for command analysis
+            if path_command and not script_path:
+                analysis = analyze_folder_access(path_command, root or "")
+            else:
+                analysis = analyze_folder_access(input_path, root or "")
 
         elif args.mode == "dynamic":
             if not input_path:
